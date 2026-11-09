@@ -36,6 +36,12 @@ export const fmtMonth = (m: string) => new Date(m + '-01T00:00:00Z').toLocaleDat
 export const fmtMonthShort = (m: string) => new Date(m + '-01T00:00:00Z').toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' })
 export const fmtDay = (d: string) => d.startsWith('0000') ? 'before' : new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 export const fmtDate = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+/** Compact money for charts and tiles: $148k, −$1.2M. */
+export const kmoney = (c: number) => {
+  const d = Math.abs(c) / 100, sym = currency === 'CAD' ? 'CA$' : '$'
+  const v = d >= 1e6 ? `${(d / 1e6).toFixed(d >= 1e7 ? 0 : 1)}M` : d >= 1e3 ? `${(d / 1e3).toFixed(d >= 1e5 ? 0 : 1).replace(/\.0$/, '')}k` : `${Math.round(d)}`
+  return `${c < 0 ? '−' : ''}${sym}${v}`
+}
 export const plural = (n: number, w: string, p = w + 's') => `${n.toLocaleString()} ${n === 1 ? w : p}`
 
 // ---------- Theme ----------
@@ -65,7 +71,7 @@ export function ThemeToggle() {
   )
 }
 
-export const Monogram = () => <span className="monogram" aria-hidden="true">TR</span>
+export const Monogram = () => <span className="monogram" aria-hidden="true"><svg viewBox="0 0 20 20" width="14" height="14"><path d="M2 15 L7 9 L11 12 L18 4" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
 
 // ---------- Toasts with undo ----------
 
@@ -228,10 +234,10 @@ function AccountMenu() {
               e.preventDefault()
               const f = new FormData(e.currentTarget)
               const email = String(f.get('email')), pw = String(f.get('password'))
-              void run(() => mode === 'in' ? signIn(email, pw) : signUp(email, pw), mode === 'in' ? 'Signed in. Syncing your projects.' : 'Account created. Syncing your projects.')
+              void run(() => mode === 'in' ? signIn(email, pw) : signUp(email, pw), mode === 'in' ? 'Signed in. Syncing your forecasts.' : 'Account created. Syncing your forecasts.')
             }}>
               <h3>{mode === 'in' ? 'Sign in to sync' : 'Create an account'}</h3>
-              <p className="muted small">Optional. Everything works signed out. Signing in syncs your reconciliations across devices. By default only totals sync: client names, matters and raw files stay on this device.</p>
+              <p className="muted small">Optional. Everything works signed out. Signing in syncs your forecasts, scenarios and weekly snapshots across devices. Imported transactions sync too unless you turn that off in Settings.</p>
               {!cloudConfigured && <p className="error small">Sync is not configured for this build.</p>}
               <label className="field"><span>Email</span><input name="email" type="email" required autoComplete="email" /></label>
               <label className="field"><span>Password</span><input name="password" type="password" required minLength={6} autoComplete={mode === 'in' ? 'current-password' : 'new-password'} /></label>
@@ -244,10 +250,10 @@ function AccountMenu() {
               <div><div className="muted small">Signed in as</div><strong className="break">{s.user.email}</strong></div>
               <div className="row gap-sm"><SyncPill />{s.error && <span className="error small">{s.error}</span>}</div>
               <button type="button" className="btn ghost sm block" disabled={busy} onClick={() => void run(syncNow)}>Sync now</button>
-              <button type="button" className="btn ghost sm block" onClick={() => void run(async () => download(`trust-reconcile-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll()))}>Export all my data (JSON)</button>
-              <button type="button" className="btn ghost sm block" onClick={() => void run(signOut, 'Signed out. Your projects stay on this device.')}>Sign out</button>
+              <button type="button" className="btn ghost sm block" onClick={() => void run(async () => download(`runway-export-${new Date().toISOString().slice(0, 10)}.json`, await exportAll()))}>Export all my data (JSON)</button>
+              <button type="button" className="btn ghost sm block" onClick={() => void run(signOut, 'Signed out. Your forecasts stay on this device.')}>Sign out</button>
               <hr />
-              <button type="button" className="btn danger-ghost sm block" disabled={busy} onClick={async () => { if (await ask('Delete cloud data?', 'Removes every Trust Reconcile project and snapshot from the cloud. Copies on this device are kept.', 'Delete cloud data')) void run(deleteCloudData, 'Cloud data deleted.') }}>Delete my cloud data</button>
+              <button type="button" className="btn danger-ghost sm block" disabled={busy} onClick={async () => { if (await ask('Delete cloud data?', 'Removes every Runway business, scenario and snapshot from the cloud. Copies on this device are kept.', 'Delete cloud data')) void run(deleteCloudData, 'Cloud data deleted.') }}>Delete my cloud data</button>
               <button type="button" className="btn danger-ghost sm block" disabled={busy} onClick={async () => { if (await ask('Delete your account?', 'Deletes your account and all cloud data. Projects on this device are kept. This cannot be undone.', 'Delete account')) void run(deleteAccount, 'Account deleted.') }}>Delete my account</button>
               {err && <p className="error small" role="alert">{err}</p>}
             </div>
@@ -261,11 +267,11 @@ function AccountMenu() {
 export function Header() {
   const path = location.pathname
   const [menu, setMenu] = useState(false)
-  const nav = [['/', 'Product'], ['/app', 'Reconciliations'], ['/docs', 'Docs'], ['/settings', 'Settings']] as const
+  const nav = [['/', 'Product'], ['/app', 'Forecasts'], ['/docs', 'Docs'], ['/settings', 'Settings']] as const
   return (
-    <header className={`header${path === "/" ? " dark-hero" : ""}`}>
+    <header className="header">
       <div className="header-inner">
-        <Link href="/" className="brand" aria-label="Trust Reconcile home"><Monogram /><span>Trust Reconcile</span></Link>
+        <Link href="/" className="brand" aria-label="Runway home"><Monogram /><span>Runway</span></Link>
         <nav className={`nav${menu ? ' open' : ''}`} aria-label="Main">
           {nav.map(([h, l]) => <Link key={h} href={h} onClick={() => setMenu(false)} aria-current={(h === '/' ? path === '/' : path.startsWith(h)) ? 'page' : undefined}>{l}</Link>)}
         </nav>
@@ -273,7 +279,7 @@ export function Header() {
           <SyncPill />
           <ThemeToggle />
           <AccountMenu />
-          {path === '/' && <Link href="/app" className="btn accent sm hide-sm">Start reconciling</Link>}
+          {path === '/' && <Link href="/app" className="btn primary sm hide-sm">Open Runway</Link>}
           <button type="button" className="icon-btn burger" aria-label="Menu" aria-expanded={menu} onClick={() => setMenu(m => !m)}>
             <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
@@ -288,23 +294,23 @@ export function Footer() {
   return (
     <footer className="footer">
       <div className="footer-inner">
-        <div className="footer-brand"><Monogram /> <strong>Trust Reconcile</strong></div>
-        <nav className="footer-nav" aria-label="Footer"><Link href="/app">Reconciliations</Link><Link href="/docs">Docs</Link><Link href="/docs#rules">Rules</Link><Link href="/settings">Settings</Link></nav>
-        <p>Built by Aryan Kansagara. Independent project, not affiliated with Clio.</p>
-        <p className="muted small">Sample firms are synthetic. Statements and ledgers are processed in your browser and stored on this device. Not legal or accounting advice; your bar or law society rules govern.</p>
+        <div className="footer-brand"><Monogram /> <strong>Runway</strong></div>
+        <nav className="footer-nav" aria-label="Footer"><Link href="/app">Forecasts</Link><Link href="/docs">Docs</Link><Link href="/docs#method">Method</Link><Link href="/settings">Settings</Link></nav>
+        <p>Built by Aryan Kansagara. Independent project, not affiliated with Intuit or QuickBooks.</p>
+        <p className="muted small">Sample businesses are synthetic. Files are processed in your browser and stored on this device. A forecast is an estimate, not financial advice.</p>
       </div>
     </footer>
   )
 }
 
 export function NotFound() {
-  useEffect(() => { document.title = 'Not found · Trust Reconcile' }, [])
+  useEffect(() => { document.title = 'Not found · Runway' }, [])
   return (
     <section className="page narrow center notfound">
       <div className="nf-code" aria-hidden="true">404</div>
-      <h1>This page does not reconcile</h1>
-      <p className="muted">There is no entry at this address in any ledger we keep. The difference is exactly one page.</p>
-      <div className="row gap center-x"><Link href="/" className="btn ghost">Home</Link><Link href="/app" className="btn primary">Your reconciliations</Link></div>
+      <h1>This week is not in the forecast</h1>
+      <p className="muted">We rolled forward thirteen weeks and never found this page. It may have moved, or the link is off by a digit.</p>
+      <div className="row gap center-x"><Link href="/" className="btn ghost">Home</Link><Link href="/app" className="btn primary">Your forecasts</Link></div>
     </section>
   )
 }
@@ -313,4 +319,4 @@ export function Empty({ title, children, icon }: { title: string; children?: Rea
   return <div className="empty">{icon ?? <div className="empty-icon" aria-hidden="true" />}<h3>{title}</h3>{children}</div>
 }
 
-export const SyntheticBadge = () => <span className="badge synthetic" title="Invented firm and clients, not real data">Synthetic</span>
+export const SyntheticBadge = () => <span className="badge synthetic" title="Invented business, customers and amounts">Synthetic</span>

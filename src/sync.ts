@@ -1,12 +1,11 @@
 // Optional cloud sync. Local-first: everything works signed out; signing in merges projects by id, last write wins.
-// With "totals only" on (the default), nothing that names a client or matter ever leaves the device.
+// Settings, scenarios, edits and weekly snapshots always sync; imported transactions only when allowed and under the cap.
 import { useSyncExternalStore } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Dataset } from './engine/types.ts'
-import { cloudProject, cloudSnapshot } from './engine/snapshot.ts'
 import { clearTombstones, getData, getPrefs, getProjects, loadProjects, onProjectChange, putData, saveProject, tombstones, type Project, type Snapshot } from './store.ts'
 
-export const APP_ID = 'trust-reconcile'
+export const APP_ID = 'cash-runway'
 /** Raw imports above this stay on the device even when full sync is allowed. */
 export const RAW_SYNC_LIMIT = 1_500_000
 
@@ -90,7 +89,10 @@ function schedule() {
 }
 
 interface CloudRow { id: string; name: string; data: CloudData; updated_at: string; created_at: string }
-interface CloudData { project: Omit<Project, 'snapshots' | 'dataMissing'>; dataset?: Dataset; totalsOnly?: boolean }
+interface CloudData { project: Omit<Project, 'snapshots' | 'dataMissing'>; dataset?: Dataset }
+
+const cloudProject = (p: Project) => { const { snapshots: _s, dataMissing: _m, ...meta } = p; return meta }
+const byAsOf = (a: Snapshot, b: Snapshot) => a.asOf.localeCompare(b.asOf)
 
 let running: Promise<void> | null = null
 export function syncNow(): Promise<void> {
@@ -103,7 +105,7 @@ export function syncNow(): Promise<void> {
 async function doSync() {
   if (!navigator.onLine) { set({ status: 'offline' }); return }
   set({ status: 'syncing', error: null })
-  const totalsOnly = getPrefs().totalsOnly
+  const syncRaw = getPrefs().syncRaw
   try {
     const c = await client()
     const dead = tombstones()
@@ -135,26 +137,19 @@ async function doSync() {
       const cvs = cloudVersions.get(id) ?? []
       const cloudTime = cp ? Date.parse(cp.updated_at) : 0
       if (lp && (!cp || lp.updatedAt > cloudTime)) {
-        const ds = lp.sampleId || totalsOnly ? undefined : await getData(id)
+        const ds = lp.sampleId || !syncRaw ? undefined : await getData(id)
         const raw = ds ? JSON.stringify(ds) : ''
-        const payload: CloudData = { project: cloudProject(lp, totalsOnly), totalsOnly, ...(raw && raw.length <= RAW_SYNC_LIMIT ? { dataset: ds } : {}) }
+        const payload: CloudData = { project: cloudProject(lp), ...(raw && raw.length <= RAW_SYNC_LIMIT ? { dataset: ds } : {}) }
         const { error: e1 } = await c.from('projects').upsert({ id, app: APP_ID, name: lp.name, data: payload, updated_at: new Date(lp.updatedAt).toISOString() })
         if (e1) throw e1
-        // Sign-offs change existing snapshots, so push them all for a project that changed here.
-        if (lp.snapshots.length) {
-          const { error: e2 } = await c.from('project_versions').upsert(lp.snapshots.map(s => ({ id: s.id, project_id: id, label: s.month, data: cloudSnapshot(s, totalsOnly) })))
-          if (e2) throw e2
-        }
       } else if (cp && (!lp || cloudTime > lp.updatedAt)) {
         const { project, dataset } = cp.data
         const hasLocal = !!(await getData(id))
         if (dataset && !hasLocal) await putData(id, dataset)
-        // Keep local client detail; take totals and sign-offs from the cloud.
-        const merged = cvs.map(v => { const s = lp?.snapshots.find(x => x.id === v.id); return s ? { ...s, signoff: v.signoff, totals: v.totals, counts: v.counts, tiesOut: v.tiesOut } : v })
         const localOnly = (lp?.snapshots ?? []).filter(s => !cvs.some(v => v.id === s.id))
         await saveProject({
-          ...project, id, name: cp.name, updatedAt: cloudTime, imports: lp && totalsOnly ? lp.imports : project.imports,
-          snapshots: [...merged, ...localOnly].sort((a, b) => a.month.localeCompare(b.month)),
+          ...project, id, name: cp.name, updatedAt: cloudTime,
+          snapshots: [...cvs, ...localOnly].sort(byAsOf),
           dataMissing: !project.sampleId && !dataset && !hasLocal,
         }, { touch: false, silent: true })
       }
@@ -162,11 +157,11 @@ async function doSync() {
       if (!now) continue
       const missingUp = now.snapshots.filter(s => !cvs.some(v => v.id === s.id))
       if (missingUp.length) {
-        const { error: e3 } = await c.from('project_versions').upsert(missingUp.map(s => ({ id: s.id, project_id: id, label: s.month, data: cloudSnapshot(s, totalsOnly) })))
+        const { error: e3 } = await c.from('project_versions').upsert(missingUp.map(s => ({ id: s.id, project_id: id, label: s.label, data: s })))
         if (e3) throw e3
       }
       const missingDown = cvs.filter(v => !now.snapshots.some(s => s.id === v.id))
-      if (missingDown.length) await saveProject({ ...now, snapshots: [...now.snapshots, ...missingDown].sort((a, b) => a.month.localeCompare(b.month)) }, { touch: false, silent: true })
+      if (missingDown.length) await saveProject({ ...now, snapshots: [...now.snapshots, ...missingDown].sort(byAsOf) }, { touch: false, silent: true })
     }
     set({ status: 'synced', lastSynced: Date.now() })
   } catch (e) {

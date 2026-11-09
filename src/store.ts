@@ -1,46 +1,34 @@
 import { useSyncExternalStore } from 'react'
+import type { Snapshot } from './engine/forecast.ts'
 import type { Kind } from './engine/importer.ts'
-import type { ExKind, Severity } from './engine/recon.ts'
-import { DEFAULT_SETTINGS, type Config, type Dataset, type Jurisdiction, type MatchSettings } from './engine/types.ts'
+import { DEFAULT_SETTINGS, EMPTY_OVERRIDES, type Dataset, type Overrides, type Scenario, type Settings } from './engine/types.ts'
+
+export type { Snapshot }
 
 export interface ImportMeta { id: string; kind: Kind; fileName: string; format: string; rows: number; skipped: number; at: number }
-
-export interface Signoff { reconciler: string; reconciledAt: string; reviewer?: string; reviewedAt?: string }
-
-/** A closed month: totals always, client detail only on this device when "totals only" sync is on. */
-export interface Snapshot {
-  id: string
-  month: string
-  createdAt: number
-  currency: Config['currency']
-  tiesOut: boolean
-  totals: { closing: number; dit: number; oc: number; adjustedBank: number; journal: number; clientTotal: number; bankOnly: number; unallocated: number; unexplainedBank: number; unexplainedClients: number }
-  counts: { matched: number; outstanding: number; bankOnly: number; critical: number; warning: number; info: number }
-  exceptions: { id: string; kind: ExKind; severity: Severity; amount: number; title?: string; matter?: string }[]
-  outstanding: { id: string; date: string; amount: number; ref: string; matter?: string; payee?: string }[]
-  clients?: { matter: string; client: string; balance: number }[]
-  signoff?: Signoff
-}
-
-export interface Firm { name: string; address: string; reconciler: string; reviewer: string; signatory: string }
 
 export interface Project {
   id: string
   name: string
   createdAt: number
   updatedAt: number
-  config: Config
+  settings: Settings
+  overrides: Overrides
+  scenarios: Scenario[]
   snapshots: Snapshot[]
   imports: ImportMeta[]
-  firm: Firm
+  /** Who reminder emails come from. */
+  sender: { name: string; company: string }
   sampleId?: string
-  /** True when this device has no copy of the raw data (synced from another device). */
+  /** Samples are generated from this date so they stay stable after creation. */
+  sampleAsOf?: string
+  /** True when this device has no copy of the imported transactions (synced from another device). */
   dataMissing?: boolean
 }
 
 // ---------- Tiny IndexedDB wrapper (falls back to memory in private modes) ----------
 
-const DB = 'trust-reconcile'
+const DB = 'cash-runway'
 let dbp: Promise<IDBDatabase | null> | null = null
 function db(): Promise<IDBDatabase | null> {
   return dbp ??= new Promise(res => {
@@ -137,7 +125,7 @@ export const putData = (id: string, ds: Dataset) => idbPut('data', ds, id)
 export const uuid = () => crypto.randomUUID()
 
 // Tombstones keep a project deleted offline from coming back on the next sync.
-const TOMB = 'trust-reconcile.tombstones'
+const TOMB = 'cash-runway.tombstones'
 export const tombstones = (): string[] => { try { return JSON.parse(localStorage.getItem(TOMB) ?? '[]') } catch { return [] } }
 const addTombstone = (id: string) => localStorage.setItem(TOMB, JSON.stringify([...new Set([...tombstones(), id])]))
 const removeTombstone = (id: string) => localStorage.setItem(TOMB, JSON.stringify(tombstones().filter(x => x !== id)))
@@ -146,23 +134,20 @@ export const clearTombstones = (ids: string[]) => localStorage.setItem(TOMB, JSO
 // ---------- App preferences (settings page) ----------
 
 export interface Prefs {
-  /** Sync only totals and counts, never client names, matter numbers or raw files. */
-  totalsOnly: boolean
-  jurisdiction: Jurisdiction
-  currency: Config['currency']
-  settings: MatchSettings
-  firm: Firm
+  /** Sync imported bank lines and aging rows (under the size cap). Off = only settings, scenarios and weekly totals sync. */
+  syncRaw: boolean
+  settings: Settings
+  sender: Project['sender']
 }
-const PREF_KEY = 'trust-reconcile.prefs'
-const BLANK_FIRM: Firm = { name: '', address: '', reconciler: '', reviewer: '', signatory: '' }
-const DEFAULT_PREFS: Prefs = { totalsOnly: true, jurisdiction: 'aba', currency: 'USD', settings: { ...DEFAULT_SETTINGS }, firm: BLANK_FIRM }
+const PREF_KEY = 'cash-runway.prefs'
+const DEFAULT_PREFS: Prefs = { syncRaw: true, settings: { ...DEFAULT_SETTINGS }, sender: { name: '', company: '' } }
 let prefs: Prefs | null = null
 const prefSubs = new Set<() => void>()
 export function getPrefs(): Prefs {
   if (prefs) return prefs
   try {
     const raw = JSON.parse(localStorage.getItem(PREF_KEY) ?? '{}')
-    prefs = { ...DEFAULT_PREFS, ...raw, settings: { ...DEFAULT_SETTINGS, ...raw.settings }, firm: { ...BLANK_FIRM, ...raw.firm } }
+    prefs = { ...DEFAULT_PREFS, ...raw, settings: { ...DEFAULT_SETTINGS, ...raw.settings }, sender: { ...DEFAULT_PREFS.sender, ...raw.sender } }
   } catch { prefs = DEFAULT_PREFS }
   return prefs!
 }
@@ -173,8 +158,7 @@ export function setPrefs(p: Partial<Prefs>) {
 }
 export const usePrefs = () => useSyncExternalStore(f => { prefSubs.add(f); return () => prefSubs.delete(f) }, getPrefs)
 
-export function blankConfig(): Config {
-  const p = getPrefs()
-  return { statements: {}, settings: { ...p.settings }, manual: [], rejected: [], jurisdiction: p.jurisdiction, currency: p.currency, accountName: 'Trust account' }
+export function blankProject(name: string): Project {
+  const p = getPrefs(), now = Date.now()
+  return { id: uuid(), name, createdAt: now, updatedAt: now, settings: { ...p.settings }, overrides: structuredClone(EMPTY_OVERRIDES), scenarios: [], snapshots: [], imports: [], sender: { ...p.sender } }
 }
-export const blankFirm = (): Firm => ({ ...getPrefs().firm })
