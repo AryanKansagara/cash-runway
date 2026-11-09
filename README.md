@@ -25,4 +25,4 @@ npm run dev
 npm test
 ```
 
-Live: https://cash-runway.vercel.app
+Live: https://cash-runway-zeta.vercel.app
