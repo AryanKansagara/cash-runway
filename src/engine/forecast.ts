@@ -342,11 +342,11 @@ export function accuracy(snap: Snapshot, ds: Dataset): Variance[] {
   })
 }
 
-/** Mean absolute error of weekly net cash as a share of average weekly outflow: one honest accuracy number. */
+/** 100 minus the average closing-balance miss as a share of the actual balance: one honest accuracy number. */
 export function accuracyScore(v: Variance[]): number | null {
-  if (!v.length) return null
-  const mae = v.reduce((a, x) => a + Math.abs(x.netVar), 0) / v.length
-  const scale = v.reduce((a, x) => a + Math.max(x.aOut, x.fOut), 0) / v.length || 1
-  return Math.max(0, Math.round((1 - mae / scale) * 100))
+  const xs = v.filter(x => x.aClose !== null && x.aClose !== 0)
+  if (!xs.length) return null
+  const err = xs.reduce((a, x) => a + Math.abs(x.fClose - x.aClose!) / Math.abs(x.aClose!), 0) / xs.length
+  return Math.max(0, Math.round((1 - err) * 100))
 }
 

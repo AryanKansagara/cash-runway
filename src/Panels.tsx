@@ -280,7 +280,7 @@ function History({ project, ds, fc }: Props) {
             const score = accuracyScore(v)
             return (
               <button key={s.id} type="button" className={`snap${s.id === selId ? ' on' : ''}`} onClick={() => setSel(s.id)}>
-                <b>{s.label.replace(/\d{4}-\d{2}-\d{2}/, d => fmtDay(d))}</b>
+                <b>{snapLabel(s)}</b>
                 <Spark values={[s.start, ...s.weeks.map(w => w.close)]} min={s.minCash} w={110} h={30} />
                 <small className="muted">Low {kmoney(s.low.amount)} · safe {kmoney(s.safeToSpend)}</small>
                 <small>{score === null ? <span className="muted">No actuals yet</span> : <>Accuracy <b>{score}%</b> over {plural(v.length, 'week')}</>}</small>
@@ -296,7 +296,7 @@ function History({ project, ds, fc }: Props) {
             <h2>Compare with</h2>
             <select value={cmpId} onChange={e => setCmp(e.target.value)} aria-label="Compare with">
               <option value="">Today’s forecast</option>
-              {snaps.filter(s => s.id !== sel.id).map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {snaps.filter(s => s.id !== sel.id).map(s => <option key={s.id} value={s.id}>{snapLabel(s)}</option>)}
             </select>
           </div>
           <SnapCompare a={sel} b={snaps.find(s => s.id === cmpId) ?? null} now={fc.f} />
@@ -313,7 +313,7 @@ function Accuracy({ snap, ds, project }: { snap: Snapshot; ds: Dataset; project:
   return (
     <div className="panel">
       <div className="panel-head">
-        <h2>Forecast vs actual: {snap.label}</h2>
+        <h2>Forecast vs actual: {snapLabel(snap)}</h2>
         <button type="button" className="btn danger-ghost sm" onClick={async () => {
           if (!(await ask('Delete this saved week?', 'Removes the saved forecast. Bank data is not affected.', 'Delete'))) return
           const before = project.snapshots
@@ -322,7 +322,7 @@ function Accuracy({ snap, ds, project }: { snap: Snapshot; ds: Dataset; project:
         }}>Delete</button>
       </div>
       {!v.length ? <p className="muted">None of this forecast’s weeks have finished in your bank data yet. Import bank lines after {fmtDay(snap.weeks[0].end)} to score it.</p> : <>
-        <p>{score !== null && <>Weekly net cash was within <b>{100 - score}%</b> of a typical week’s spending on average. </>}{worst && Math.abs(worst.netVar) > 0 && <>Biggest miss: week ending {fmtDay(worst.end)}, {money(worst.netVar, { cents: false, sign: true })} {worst.netVar > 0 ? 'better' : 'worse'} than forecast.</>}</p>
+        <p>{score !== null && <>Forecast closing balances were off by <b>{100 - score}%</b> on average. </>}{worst && Math.abs(worst.netVar) > 0 && <>Biggest miss: week ending {fmtDay(worst.end)}, {money(worst.netVar, { cents: false, sign: true })} {worst.netVar > 0 ? 'better' : 'worse'} than forecast.</>}</p>
         <div className="table-wrap">
           <table className="data-table">
             <thead><tr><th>Week</th><th className="num">Forecast in</th><th className="num">Actual in</th><th className="num">Forecast out</th><th className="num">Actual out</th><th className="num">Net variance</th><th className="num">Forecast close</th><th className="num">Actual close</th></tr></thead>
@@ -344,18 +344,20 @@ function Accuracy({ snap, ds, project }: { snap: Snapshot; ds: Dataset; project:
   )
 }
 
+const snapLabel = (s: Snapshot) => `Week of ${fmtDay(s.asOf)}`
+
 const VarBar = ({ v, scale }: { v: number; scale: number }) => <span className="varbar" aria-hidden="true"><i className={v < 0 ? 'neg' : 'pos'} style={{ width: `${Math.round(Math.abs(v) / scale * 100)}%` }} /></span>
 
 function SnapCompare({ a, b, now }: { a: Snapshot; b: Snapshot | null; now: Forecast }) {
   const other = b ?? { label: 'Today', low: now.low, breach: now.breach, safeToSpend: now.safeToSpend, start: now.start, minCash: now.minCash, reserve: now.reserve, byGroup: Object.fromEntries(Object.entries(now.weeks.reduce((m, w) => { for (const [g, v] of Object.entries(w.byGroup)) m[g] = (m[g] ?? 0) + (v ?? 0); return m }, {} as Record<string, number>))) as Snapshot['byGroup'], weeks: now.weeks }
   const rows: [string, number, number][] = [
     ['Opening balance', a.start, other.start], ['Low point', a.low.amount, other.low.amount], ['Safe to spend', a.safeToSpend, other.safeToSpend], ['Reserve for big bills', a.reserve, other.reserve],
-    ...[...new Set([...Object.keys(a.byGroup), ...Object.keys(other.byGroup)])].map(g => [`13-week ${GROUP_LABEL[g as Group].toLowerCase()}`, a.byGroup[g as Group] ?? 0, other.byGroup[g as Group] ?? 0] as [string, number, number]),
+    ...[...new Set([...Object.keys(a.byGroup), ...Object.keys(other.byGroup)])].map(g => [`13 weeks: ${GROUP_LABEL[g as Group]}`, a.byGroup[g as Group] ?? 0, other.byGroup[g as Group] ?? 0] as [string, number, number]),
   ]
   return (
     <div className="table-wrap">
       <table className="data-table">
-        <thead><tr><th></th><th className="num">{a.label}</th><th className="num">{b ? b.label : 'Today'}</th><th className="num">Change</th></tr></thead>
+        <thead><tr><th></th><th className="num">{snapLabel(a)}</th><th className="num">{b ? snapLabel(b) : 'Today'}</th><th className="num">Change</th></tr></thead>
         <tbody>
           {rows.map(([l, x, y]) => <tr key={l}><th scope="row">{l}</th><td className="num">{money(x, { cents: false })}</td><td className="num">{money(y, { cents: false })}</td><td className={`num ${y - x > 0 ? 'pos' : y - x < 0 ? 'neg' : 'muted'}`}>{y === x ? '—' : money(y - x, { cents: false, sign: true })}</td></tr>)}
           <tr><th scope="row">First week below minimum</th><td className="num">{a.breach ? `Week ${a.breach}` : 'Never'}</td><td className="num">{other.breach ? `Week ${other.breach}` : 'Never'}</td><td /></tr>

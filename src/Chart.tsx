@@ -55,7 +55,7 @@ export function CashChart({ f, base, height = 340, chips = [], compact = false, 
   const chipH = chips.length ? 46 : 0
   const pad = { l: compact ? 44 : 60, r: compact ? 12 : 20, t: 26, b: 34 + chipH }
   const H = height
-  const all = [...vals, ...(baseVals ?? []), f.minCash, 0]
+  const all = [...vals, ...(baseVals ?? []), f.minCash]
   let lo = Math.min(...all), hi = Math.max(...all)
   const span = hi - lo || 1
   lo -= span * 0.08; hi += span * 0.1
@@ -115,7 +115,7 @@ export function CashChart({ f, base, height = 340, chips = [], compact = false, 
         <path d={area} fill={`url(#a${gid})`} />
         <path d={area} className="danger-fill" clipPath={`url(#c${gid})`} />
         <line x1={pad.l} x2={W - pad.r} y1={yMin} y2={yMin} className="min-line" />
-        <text x={W - pad.r} y={yMin - 6} className="min-label" textAnchor="end">Minimum cash {kmoney(f.minCash)}</text>
+        <text x={pad.l + 6} y={yMin - 6} className="min-label">Minimum cash {kmoney(f.minCash)}</text>
         {baseVals && <path d={path(baseVals)} className="ghost-line" />}
         <path d={line} className="cash-line" />
         {f.weeks.map(w => <circle key={w.i} cx={x(w.i)} cy={y(vals[w.i])} r={hover === w.i ? 5 : 2.6} className={`dot${vals[w.i] < f.minCash ? ' under' : ''}`} />)}
@@ -123,7 +123,7 @@ export function CashChart({ f, base, height = 340, chips = [], compact = false, 
           <circle r="7" />
           <text y={vals[lowI] - lo < (hi - lo) * 0.2 ? -14 : 22} textAnchor={lowI > 10 ? 'end' : lowI < 2 ? 'start' : 'middle'}>Low {kmoney(vals[lowI])}{lowI ? ` · wk ${lowI}` : ''}</text>
         </g>
-        {f.weeks.map(w => (w.i % (compact ? 3 : W < 640 ? 2 : 1) === 0 || w.i === 1) && <text key={w.i} x={x(w.i)} y={H - pad.b + 18} className="tick" textAnchor="middle">{fmtDay(w.end)}</text>)}
+        {f.weeks.map(w => w.i % (compact || W < 640 ? 3 : 2) === 0 && <text key={w.i} x={x(w.i)} y={H - pad.b + 18} className="tick" textAnchor="middle">{fmtDay(w.end)}</text>)}
         <text x={x(0)} y={H - pad.b + 18} className="tick" textAnchor="start">Today</text>
         {hover !== null && (
           <g className="hover" pointerEvents="none">
