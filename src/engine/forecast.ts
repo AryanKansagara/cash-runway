@@ -1,4 +1,4 @@
-import { addDays, addMonths, daysBetween } from './dates.ts'
+import { addDays, addMonths, daysBetween, nextBankDay } from './dates.ts'
 import { amountAt, detectRecurring, fromTemplates, occurrences, sameParty, type Series } from './recurring.ts'
 import type { Bill, Dataset, Invoice, Overrides, PaidInvoice, Scenario, Settings } from './types.ts'
 
@@ -166,6 +166,9 @@ export function buildInputs(ds: Dataset, s: Settings, ov: Overrides, asOf = asOf
       lines.push({ id: `${x.key}@${d}`, date: d, amount: ov.series[x.key]?.amount ?? amountAt(x, d), label: x.label, group: GROUP_OF[x.category] ?? (x.amount > 0 ? 'revenue' : 'other'), party: x.label, source: x.key })
     }
   }
+  // Banks only post on banking days: a rent run due on a Saturday clears on Monday, which can be next week.
+  // Canadian holidays are not modelled, so CAD businesses only skip weekends.
+  for (const l of lines) l.date = nextBankDay(l.date, s.currency === 'USD')
   const known = balanceAt(ds, asOf)
   return { asOf, start: known ?? 0, startKnown: known !== null, series, stats, collections, payments, funds, lines }
 }

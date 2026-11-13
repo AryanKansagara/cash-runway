@@ -63,3 +63,38 @@ export function parseMoney(raw: string): number | null {
   const c = Math.round(parseFloat(s) * 100)
   return neg ? -c : c
 }
+
+const wday = (d: string) => new Date(toMs(d)).getUTCDay()
+const iso = (y: number, m: number, d: number) => fromMs(Date.UTC(y, m - 1, d))
+/** The n-th given weekday of a month (n = -1 for the last one). */
+function nthWeekday(y: number, m: number, wd: number, n: number) {
+  if (n > 0) { const first = iso(y, m, 1); return addDays(first, (wd - wday(first) + 7) % 7 + (n - 1) * 7) }
+  const last = iso(y, m + 1, 0)
+  return addDays(last, -((wday(last) - wd + 7) % 7))
+}
+
+/**
+ * Days the Federal Reserve Banks are closed, so ACH and wires do not settle (Federal Reserve K.8,
+ * "Holidays Observed"). A holiday on a Sunday is observed on Monday; one on a Saturday is not
+ * observed by the Reserve Banks, which stay open the Friday before.
+ */
+export function fedHolidays(y: number): string[] {
+  const fixed = [iso(y, 1, 1), iso(y, 6, 19), iso(y, 7, 4), iso(y, 11, 11), iso(y, 12, 25)].map(d => wday(d) === 0 ? addDays(d, 1) : d).filter(d => wday(d) !== 6)
+  return [...fixed, nthWeekday(y, 1, 1, 3), nthWeekday(y, 2, 1, 3), nthWeekday(y, 5, 1, -1), nthWeekday(y, 9, 1, 1), nthWeekday(y, 10, 1, 2), nthWeekday(y, 11, 4, 4)].sort()
+}
+
+const holidayCache = new Map<number, Set<string>>()
+export function isBankDay(d: string, usHolidays = true): boolean {
+  const w = wday(d)
+  if (w === 0 || w === 6) return false
+  if (!usHolidays) return true
+  const y = Number(d.slice(0, 4))
+  if (!holidayCache.has(y)) holidayCache.set(y, new Set(fedHolidays(y)))
+  return !holidayCache.get(y)!.has(d)
+}
+
+/** Money scheduled for a weekend or bank holiday moves on the next banking day. */
+export function nextBankDay(d: string, usHolidays = true): string {
+  while (!isBankDay(d, usHolidays)) d = addDays(d, 1)
+  return d
+}

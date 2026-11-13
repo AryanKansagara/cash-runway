@@ -322,7 +322,7 @@ function Accuracy({ snap, ds, project }: { snap: Snapshot; ds: Dataset; project:
         }}>Delete</button>
       </div>
       {!v.length ? <p className="muted">None of this forecast’s weeks have finished in your bank data yet. Import bank lines after {fmtDay(snap.weeks[0].end)} to score it.</p> : <>
-        <p>{score !== null && <>Forecast closing balances were off by <b>{100 - score}%</b> on average. </>}{worst && Math.abs(worst.netVar) > 0 && <>Biggest miss: week ending {fmtDay(worst.end)}, {money(worst.netVar, { cents: false, sign: true })} {worst.netVar > 0 ? 'better' : 'worse'} than forecast.</>}</p>
+        <p>{score !== null && <>Forecast closing balances were off by <b>{100 - score}%</b> on average. </>}{worst && Math.abs(worst.netVar) > 0 && <>Biggest miss: week ending {fmtDay(worst.end)}, {money(Math.abs(worst.netVar), { cents: false })} {worst.netVar > 0 ? 'better' : 'worse'} than forecast.</>}</p>
         <div className="table-wrap">
           <table className="data-table">
             <thead><tr><th>Week</th><th className="num">Forecast in</th><th className="num">Actual in</th><th className="num">Forecast out</th><th className="num">Actual out</th><th className="num">Net variance</th><th className="num">Forecast close</th><th className="num">Actual close</th></tr></thead>

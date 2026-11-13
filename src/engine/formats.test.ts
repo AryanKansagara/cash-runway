@@ -3,10 +3,11 @@
 // and Actual Budget (github.com/actualbudget/actual, packages/loot-core/src/mocks/files).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseDate } from './dates.ts'
+import { fedHolidays, nextBankDay, parseDate } from './dates.ts'
 import { apply, decodeText, detect } from './importer.ts'
 import { categorize } from './recurring.ts'
-import { applyScenario, loanPayment, type Line } from './forecast.ts'
+import { applyScenario, buildInputs, loanPayment, type Line } from './forecast.ts'
+import { DEFAULT_SETTINGS, EMPTY_DATASET, EMPTY_OVERRIDES } from './types.ts'
 
 const run = (text: string, name = '') => { const p = detect(text, name)!; return { p, a: apply(p) } }
 
@@ -139,4 +140,22 @@ test('loan scenario: monthly payments on the draw day each month, amortized like
   assert.equal(loanPayment(5_000_000, 12, 12), 444244)
   const lines = applyScenario([] as Line[], { id: 'l', kind: 'loan', amount: 5_000_000, week: 1, aprPct: 12, months: 12, on: true }, '2026-11-06')
   assert.deepEqual(lines.map(l => [l.date, l.amount]), [['2026-11-07', 5_000_000], ['2026-12-07', -444244], ['2027-01-07', -444244]])
+})
+
+test('bank holidays match the Federal Reserve K.8 table for 2026 to 2028', () => {
+  // federalreserve.gov/aboutthefed/k8.htm (last updated July 8, 2026). Saturday holidays are not observed by the Reserve Banks.
+  assert.deepEqual(fedHolidays(2026), ['2026-01-01', '2026-01-19', '2026-02-16', '2026-05-25', '2026-06-19', '2026-09-07', '2026-10-12', '2026-11-11', '2026-11-26', '2026-12-25'])
+  assert.deepEqual(fedHolidays(2027), ['2027-01-01', '2027-01-18', '2027-02-15', '2027-05-31', '2027-07-05', '2027-09-06', '2027-10-11', '2027-11-11', '2027-11-25'])
+  assert.deepEqual(fedHolidays(2028), ['2028-01-17', '2028-02-21', '2028-05-29', '2028-06-19', '2028-07-04', '2028-09-04', '2028-10-09', '2028-11-23', '2028-12-25'])
+  assert.equal(nextBankDay('2026-12-25'), '2026-12-28')
+  assert.equal(nextBankDay('2026-11-26', false), '2026-11-26')
+})
+
+test('forecast lines due on a weekend or bank holiday land on the next banking day', () => {
+  // Rent on the 1st: Jan 1 2027 is a holiday (Friday), so it clears Monday Jan 4, in the next forecast week.
+  const ds = { ...EMPTY_DATASET, templates: [{ id: 'r', name: 'Office rent', interval: 'monthly' as const, next: '2026-12-01', amount: -960000 }], balance: { amount: 10_000_000, date: '2026-11-20' } }
+  const lines = buildInputs(ds, DEFAULT_SETTINGS, EMPTY_OVERRIDES, '2026-11-20').lines
+  assert.deepEqual(lines.map(l => l.date), ['2026-12-01', '2027-01-04', '2027-02-01'])
+  const cad = buildInputs(ds, { ...DEFAULT_SETTINGS, currency: 'CAD' }, EMPTY_OVERRIDES, '2026-11-20').lines
+  assert.deepEqual(cad.map(l => l.date), ['2026-12-01', '2027-01-01', '2027-02-01'])
 })
