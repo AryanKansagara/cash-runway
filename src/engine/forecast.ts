@@ -1,4 +1,4 @@
-import { addDays, daysBetween } from './dates.ts'
+import { addDays, addMonths, daysBetween } from './dates.ts'
 import { amountAt, detectRecurring, fromTemplates, occurrences, sameParty, type Series } from './recurring.ts'
 import type { Bill, Dataset, Invoice, Overrides, PaidInvoice, Scenario, Settings } from './types.ts'
 
@@ -213,7 +213,8 @@ export function applyScenario(lines: Line[], sc: Scenario, asOf: string): Line[]
       const draw = weekStart(asOf, sc.week)
       const add: Line[] = [{ id: `${sc.id}-draw`, date: draw, amount: sc.amount, label: 'Loan draw', group: 'loan-in', party: 'Loan', source: sc.id }]
       const pay = loanPayment(sc.amount, sc.aprPct, sc.months)
-      for (let i = 1, d = addDays(draw, 30); i <= sc.months && d <= end; i++, d = addDays(draw, 30 * (i + 1))) add.push({ id: `${sc.id}-p${i}`, date: d, amount: -pay, label: 'Loan payment', group: 'loan', party: 'Loan', source: sc.id })
+      // Monthly payments on the draw's day of month, starting one month after the draw.
+      for (let i = 1, d = addMonths(draw, 1); i <= sc.months && d <= end; i++, d = addMonths(draw, i)) add.push({ id: `${sc.id}-p${i}`, date: d, amount: -pay, label: 'Loan payment', group: 'loan', party: 'Loan', source: sc.id })
       return [...lines, ...add]
     }
   }

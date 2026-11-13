@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { parseMoney } from './engine/dates.ts'
-import { apply, autoMap, detect, FIELDS, KIND_LABEL, merge, type Applied, type Kind, type Parsed } from './engine/importer.ts'
+import { apply, autoMap, decodeText, detect, FIELDS, KIND_LABEL, merge, type Applied, type Kind, type Parsed } from './engine/importer.ts'
 import { EMPTY_DATASET, type Dataset, type Settings } from './engine/types.ts'
 import { putData, saveProject, uuid, type Project } from './store.ts'
 import { useSync } from './sync.ts'
@@ -20,8 +20,14 @@ export default function DataTab({ project, ds, reload }: { project: Project; ds:
     const next: Pending[] = [], errs: string[] = []
     for (const f of Array.from(files)) {
       if (f.size > 25_000_000) { errs.push(`${f.name}: larger than 25 MB. Export a shorter date range.`); continue }
-      if (/\.(xlsx?|pdf)$/i.test(f.name)) { errs.push(`${f.name}: export as CSV instead (QuickBooks: Export → Export to CSV; most banks offer CSV or OFX).`); continue }
-      const text = await f.text()
+      if (/\.pdf$/i.test(f.name)) { errs.push(`${f.name}: PDF statements can't be read reliably. Download CSV, OFX or QFX from your bank, or Excel/CSV from QuickBooks.`); continue }
+      let text: string
+      if (/\.xlsx?$/i.test(f.name)) {
+        // QuickBooks Online's default report export is Excel: read the first sheet as CSV text.
+        const XLSX = await import('xlsx')
+        const wb = XLSX.read(await f.arrayBuffer(), { cellDates: false })
+        text = XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { blankrows: true })
+      } else text = decodeText(await f.arrayBuffer())
       const p = detect(text, f.name)
       if (!p) { errs.push(`${f.name}: could not find a header row with a Date column. Check the file is a CSV or OFX export.`); continue }
       next.push({ id: uuid(), file: f.name, parsed: p, kind: p.kind, mapping: p.mapping, dayFirst: p.dayFirst })
@@ -59,9 +65,9 @@ export default function DataTab({ project, ds, reload }: { project: Project; ds:
             <div className="drop-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16" /></svg>
             </div>
-            <p><b>Drop CSV, OFX or QFX files here</b>, or <button type="button" className="linkish" onClick={() => input.current?.click()}>choose files</button></p>
+            <p><b>Drop CSV, OFX, QFX or Excel files here</b>, or <button type="button" className="linkish" onClick={() => input.current?.click()}>choose files</button></p>
             <p className="muted small">Bank transactions · QuickBooks A/R Aging Detail · A/P Aging Detail · Transaction List by Date · Recurring Template List · any CSV with dates and amounts</p>
-            <input ref={input} type="file" multiple accept=".csv,.txt,.ofx,.qfx,.tsv" hidden onChange={e => { if (e.target.files) void read(e.target.files); e.target.value = '' }} />
+            <input ref={input} type="file" multiple accept=".csv,.txt,.ofx,.qfx,.tsv,.xlsx,.xls" hidden onChange={e => { if (e.target.files) void read(e.target.files); e.target.value = '' }} />
           </div>
           {errors.map(e => <p key={e} className="error small" role="alert">{e}</p>)}
           {pending.map(pd => <Review key={pd.id} pd={pd} onChange={n => setPending(cur => cur.map(x => x.id === pd.id ? n : x))} onCancel={() => setPending(cur => cur.filter(x => x.id !== pd.id))} onCommit={res => void commit(pd, res)} />)}

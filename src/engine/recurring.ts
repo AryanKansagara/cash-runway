@@ -47,13 +47,14 @@ export function sameParty(a: string, b: string): boolean {
 export function categorize(label: string, amount: number): Series['category'] {
   const s = label.toLowerCase()
   if (amount > 0) return 'revenue'
-  if (/payroll|gusto|adp|paychex|wages|salar|rippling|justworks/.test(s)) return 'payroll'
-  if (/rent|lease|landlord|properties|realty|cowork/.test(s)) return 'rent'
+  // Short names are matched as whole words: "irs" must not fire on "First National", nor "att" on "Matthews".
+  if (/payroll|gusto|\badp\b|paychex|wages|salar|rippling|justworks/.test(s)) return 'payroll'
+  if (/\brent\b|\brental|lease|landlord|properties|realty|cowork/.test(s)) return 'rent'
   if (/insur|hiscox|hartford|liberty mutual|progressive|state farm|nationwide|chubb|travelers|next insurance|policy/.test(s)) return 'insurance'
-  if (/irs|tax|eftps|franchise|revenue|dept of rev|cra/.test(s)) return 'tax'
-  if (/loan|kabbage|ondeck|sba|lending|financ|capital one auto|equipment/.test(s)) return 'loan'
-  if (/electric|power|gas|water|comcast|verizon|at&t|att|internet|utility|phone/.test(s)) return 'utilities'
-  if (/adobe|google|microsoft|slack|zoom|figma|aws|amazon web|github|notion|intuit|quickbooks|atlassian|hubspot|dropbox|software|saas|license/.test(s)) return 'software'
+  if (/\birs\b|\btax|eftps|franchise tax|dept of rev|dept rev|department of revenue|\bcra\b/.test(s)) return 'tax'
+  if (/loan|kabbage|ondeck|\bsba\b|lending|financ|capital one auto|equipment/.test(s)) return 'loan'
+  if (/electric|power|\bgas\b|water|comcast|xfinity|verizon|at&t|\batt\b|t-mobile|internet|utilit|phone/.test(s)) return 'utilities'
+  if (/adobe|google|microsoft|slack|zoom|figma|\baws\b|amazon web|github|notion|intuit|quickbooks|atlassian|hubspot|dropbox|software|saas|license/.test(s)) return 'software'
   return 'other'
 }
 

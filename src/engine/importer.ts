@@ -12,7 +12,7 @@ export const KIND_LABEL: Record<Kind, string> = {
 }
 
 export const FIELDS: Record<Kind, { key: string; label: string; required?: boolean }[]> = {
-  bank: [{ key: 'date', label: 'Date', required: true }, { key: 'desc', label: 'Description', required: true }, { key: 'amount', label: 'Amount (signed)' }, { key: 'debit', label: 'Debit / withdrawal' }, { key: 'credit', label: 'Credit / deposit' }, { key: 'balance', label: 'Running balance' }],
+  bank: [{ key: 'date', label: 'Date', required: true }, { key: 'desc', label: 'Description', required: true }, { key: 'amount', label: 'Amount (signed)' }, { key: 'debit', label: 'Debit / withdrawal' }, { key: 'credit', label: 'Credit / deposit' }, { key: 'balance', label: 'Running balance' }, { key: 'dc', label: 'Debit / credit indicator' }],
   ar: [{ key: 'date', label: 'Invoice date', required: true }, { key: 'name', label: 'Customer', required: true }, { key: 'num', label: 'Invoice #' }, { key: 'due', label: 'Due date' }, { key: 'open', label: 'Open balance', required: true }, { key: 'type', label: 'Transaction type' }],
   ap: [{ key: 'date', label: 'Bill date', required: true }, { key: 'name', label: 'Vendor', required: true }, { key: 'num', label: 'Bill #' }, { key: 'due', label: 'Due date' }, { key: 'open', label: 'Open balance', required: true }, { key: 'type', label: 'Transaction type' }],
   txlist: [{ key: 'date', label: 'Date', required: true }, { key: 'type', label: 'Transaction type', required: true }, { key: 'num', label: 'Num' }, { key: 'name', label: 'Name', required: true }, { key: 'desc', label: 'Memo / description' }, { key: 'due', label: 'Due date' }, { key: 'amount', label: 'Amount', required: true }],
@@ -37,6 +37,19 @@ export interface Parsed {
 }
 
 export interface Applied { data: Partial<Dataset>; issues: Issue[]; imported: number; skipped: number }
+
+// ---------- Text decoding ----------
+
+/**
+ * Bank files are not always UTF-8: older OFX/QFX and many bank CSVs are Windows-1252 (CHARSET:1252),
+ * and some exports are UTF-16 with a byte-order mark. Decode the bytes instead of trusting File.text().
+ */
+export function decodeText(buf: ArrayBuffer | Uint8Array): string {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b.subarray(2))
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2))
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(b) } catch { return new TextDecoder('windows-1252').decode(b) }
+}
 
 // ---------- CSV ----------
 
@@ -78,6 +91,7 @@ const SYN: Record<string, string[]> = {
   debit: ['debit', 'debits', 'withdrawal', 'withdrawals', 'withdrawal amount', 'money out', 'paid out', 'payment'],
   credit: ['credit', 'credits', 'deposit', 'deposits', 'deposit amount', 'money in', 'paid in'],
   balance: ['balance', 'running bal', 'running balance', 'ledger balance'],
+  dc: ['transaction type', 'type', 'debit credit', 'debit/credit', 'dr cr', 'credit debit indicator'],
   name: ['name', 'customer', 'customer full name', 'vendor', 'vendor full name', 'payee', 'supplier', 'customer name', 'vendor name'],
   num: ['num', 'no', 'number', 'invoice #', 'invoice no', 'bill #', 'bill no', 'ref', 'ref no', 'doc number', '#'],
   due: ['due date', 'due'],
@@ -102,7 +116,7 @@ export function autoMap(kind: Kind, header: string[]): Mapping {
   const taken = new Set<number>()
   const m: Mapping = {}
   // Specific fields first so generic ones ("name", "amount") don't steal their columns.
-  const order = ['next', 'interval', 'open', 'due', 'type', 'balance', 'debit', 'credit', 'date', 'num', 'amount', 'name', 'party', 'desc']
+  const order = ['next', 'interval', 'open', 'due', 'type', 'dc', 'balance', 'debit', 'credit', 'date', 'num', 'amount', 'name', 'party', 'desc']
   if (kind === 'templates') {
     m.name = header.findIndex(h => /template name/i.test(h))
     if (m.name >= 0) taken.add(m.name)
@@ -158,29 +172,38 @@ function guessDayFirst(rows: string[][], col: number | undefined) {
 // ---------- OFX / QFX ----------
 
 function tag(block: string, name: string) {
-  const m = block.match(new RegExp(`<${name}>([^<\\r\\n]*)`, 'i'))
-  return m ? m[1].trim() : ''
+  const m = block.match(new RegExp(`<${name}>\\s*(?:<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>|([^<\\r\\n]*))`, 'i'))
+  return m ? (m[1] ?? m[2]).trim().replace(/\s+/g, ' ') : ''
 }
+
+/** OFX allows a comma as the decimal separator (European banks): "-19,78" is 19.78, not 1978. */
+const ofxMoney = (s: string) => parseMoney(/^[+-]?\d+,\d{1,2}$/.test(s) ? s.replace(',', '.') : s)
 
 export function parseOfx(text: string): Parsed {
   const txns: Txn[] = []
   const blocks = text.split(/<STMTTRN>/i).slice(1)
   blocks.forEach((b, i) => {
     const date = parseDate(tag(b, 'DTPOSTED'))
-    const amount = parseMoney(tag(b, 'TRNAMT'))
+    const amount = ofxMoney(tag(b, 'TRNAMT'))
     if (!date || amount === null) return
-    const name = decode(tag(b, 'NAME')), memo = decode(tag(b, 'MEMO'))
-    txns.push({ id: tag(b, 'FITID') || `ofx-${i}`, date, amount, desc: [name, memo].filter(Boolean).join(' · ') || tag(b, 'TRNTYPE') })
+    // Some banks put a reference number in NAME and the payee in MEMO.
+    const name = decode(tag(b, 'NAME')).replace(/^[\d\s]+$/, ''), memo = decode(tag(b, 'MEMO'))
+    // Many banks repeat the payee at the start of the memo; keep it once.
+    const desc = !memo ? name : !name || memo.toLowerCase().startsWith(name.toLowerCase()) ? memo : `${name} · ${memo}`
+    txns.push({ id: tag(b, 'FITID') || `ofx-${i}`, date, amount, desc: desc || tag(b, 'TRNTYPE') })
   })
-  const lb = text.split(/<LEDGERBAL>/i)[1]
-  const bal = lb ? { amount: parseMoney(tag(lb, 'BALAMT')), date: parseDate(tag(lb, 'DTASOF')) } : null
+  // A credit card balance is debt, not cash in the bank, so it never becomes the opening balance.
+  const card = /<CCSTMTRS>/i.test(text)
+  const lb = card ? undefined : text.split(/<LEDGERBAL>/i)[1]
+  const bal = lb ? { amount: ofxMoney(tag(lb, 'BALAMT')), date: parseDate(tag(lb, 'DTASOF')) } : null
   return {
-    kind: 'bank', format: /<\/?INTU\.BID>/i.test(text) ? 'QuickBooks Web Connect (QFX)' : 'OFX bank statement', headerRow: -1, header: [], rows: [], mapping: {}, dayFirst: false, ofx: txns,
+    kind: 'bank', format: card ? 'OFX credit card statement' : /<\/?INTU\.BID>/i.test(text) ? 'QuickBooks Web Connect (QFX)' : 'OFX bank statement', headerRow: -1, header: [], rows: [], mapping: {}, dayFirst: false, ofx: txns,
     ...(bal && bal.amount !== null && bal.date ? { balance: { amount: bal.amount, date: bal.date } } : {}),
   }
 }
 
-const decode = (s: string) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+// &amp; last, so "&amp;lt;" stays the literal text "&lt;".
+const decode = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;|&#39;/g, "'").replace(/&amp;/g, '&')
 
 // ---------- Applying a mapping ----------
 
@@ -191,6 +214,7 @@ export function apply(p: Parsed, mapping = p.mapping, dayFirst = p.dayFirst): Ap
   const issues: Issue[] = []
   if (p.ofx) {
     if (!p.ofx.length) issues.push({ line: 0, level: 'error', msg: 'No <STMTTRN> transactions found in the OFX file.' })
+    if (/credit card/.test(p.format)) issues.push({ line: 0, level: 'warning', msg: 'Credit card statement: charges and payments are imported, but the card balance is not used as your cash balance.' })
     return { data: { txns: p.ofx, ...(p.balance ? { balance: p.balance } : {}) }, issues, imported: p.ofx.length, skipped: 0 }
   }
   for (const f of FIELDS[p.kind]) if (f.required && !(mapping[f.key] >= 0)) issues.push({ line: 0, level: 'error', msg: `Map a column to “${f.label}”.` })
@@ -223,14 +247,21 @@ export function apply(p: Parsed, mapping = p.mapping, dayFirst = p.dayFirst): Ap
         if (d === null && c === null) amount = null
         else amount = (c ?? 0) - Math.abs(d ?? 0)
       }
-      if (amount === null) { issues.push({ line, level: 'warning', msg: 'No amount; row skipped.' }); skipped++; return }
       const desc = get(r, 'desc') || '(no description)'
+      const bal = parseMoney(get(r, 'balance'))
+      if (amount === null && bal !== null && /beginning balance|opening balance/i.test(desc)) {
+        // Bank of America starts the file with a "Beginning balance as of" row: a balance, not a transaction.
+        if (!balance) balance = { amount: bal, date }
+        skipped++; return
+      }
+      if (amount === null) { issues.push({ line, level: 'warning', msg: 'No amount; row skipped.' }); skipped++; return }
+      // Capital One 360 and others export unsigned amounts with a Debit/Credit column.
+      if (amount > 0 && /^(debit|dr|withdrawal)$/i.test(get(r, 'dc'))) amount = -amount
       const key = `${date}|${amount}|${desc}`
       const n = (seen.get(key) ?? 0) + 1
       seen.set(key, n)
       if (n > 1) issues.push({ line, level: 'warning', msg: `Same date, amount and description as an earlier row. Kept both; delete one if your bank exported it twice.` })
       txns.push({ id: `b${line}`, date, amount, desc })
-      const bal = parseMoney(get(r, 'balance'))
       if (bal !== null && (!balance || date >= balance.date)) balance = { amount: bal, date }
       return
     }

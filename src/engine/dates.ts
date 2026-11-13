@@ -23,11 +23,11 @@ const MONTHS: Record<string, number> = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5,
 
 /**
  * Parses the date formats bank and accounting exports use: 2026-03-14, 03/14/2026, 3/14/26,
- * 14/03/2026 (when dayFirst), 20260314 (OFX), Mar 14 2026, 14-Mar-2026.
+ * 2026/03/14, 2026.03.14, 14/03/2026 (when dayFirst), 20260314 (OFX), Mar 14 2026, 14-Mar-2026.
  */
 export function parseDate(raw: string, dayFirst = false): string | null {
   const s = raw.trim().replace(/^"|"$/g, '')
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)
   if (m) return mk(+m[1], +m[2], +m[3])
   m = s.match(/^(\d{4})(\d{2})(\d{2})/)
   if (m) return mk(+m[1], +m[2], +m[3])
