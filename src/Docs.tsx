@@ -93,7 +93,7 @@ export default function Docs() {
 
         <h2 id="privacy">Privacy</h2>
         <p>Files are parsed in your browser and stored in this browser’s IndexedDB. Nothing is uploaded unless you sign in. Signing in is optional and syncs your businesses through Supabase with row-level security, so only your account can read them. Settings, scenarios and saved weekly totals always sync when signed in; parsed transactions sync only if allowed in <Link href="/settings">Settings</Link> and under 1.5 MB per business. You can export everything as JSON, delete your cloud data, or delete your account from the account menu.</p>
-        <p className="muted small">Runway is an independent project and not affiliated with Intuit, QuickBooks or Xero. Sample businesses are synthetic. A forecast is an estimate, not financial advice.</p>
+        <p className="muted small">Sample businesses are synthetic. A forecast is an estimate, not financial advice.</p>
       </article>
     </section>
   )
