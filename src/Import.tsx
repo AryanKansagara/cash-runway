@@ -134,7 +134,7 @@ export default function DataTab({ project, ds, reload }: { project: Project; ds:
           <NumField label="Slow payer after (days late)" hint="Median days past due that marks a customer as slow." value={project.settings.slowDays} min={1} max={120} onChange={v => setS({ slowDays: v })} />
           <NumField label="Customers with no history pay (days late)" value={project.settings.defaultLag} min={0} max={90} onChange={v => setS({ defaultLag: v })} />
           <NumField label="Pay bills (days after due)" hint="0 = on the due date." value={project.settings.payDelay} min={0} max={60} onChange={v => setS({ payDelay: v })} />
-          <label className="field"><span>Currency</span><select value={project.settings.currency} onChange={e => void setS({ currency: e.target.value as Settings['currency'] })}><option value="USD">US dollar</option><option value="CAD">Canadian dollar</option></select></label>
+          <label className="field"><span>Currency</span><select value={project.settings.currency} onChange={e => void setS({ currency: e.target.value as Settings['currency'] })}><option value="USD">US dollar</option><option value="CAD">Canadian dollar</option></select><small>Also picks the bank holidays that move payments: Federal Reserve (US) or Payments Canada (CA).</small></label>
         </div>
         <h3 className="sub">Reminder emails come from</h3>
         <div className="form-grid">

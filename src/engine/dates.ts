@@ -83,18 +83,63 @@ export function fedHolidays(y: number): string[] {
   return [...fixed, nthWeekday(y, 1, 1, 3), nthWeekday(y, 2, 1, 3), nthWeekday(y, 5, 1, -1), nthWeekday(y, 9, 1, 1), nthWeekday(y, 10, 1, 2), nthWeekday(y, 11, 4, 4)].sort()
 }
 
-const holidayCache = new Map<number, Set<string>>()
-export function isBankDay(d: string, usHolidays = true): boolean {
+/** Which country's payment systems settle the money: US (Federal Reserve) or CA (Payments Canada). */
+export type BankCalendar = 'US' | 'CA'
+export const calendarFor = (currency: 'USD' | 'CAD'): BankCalendar => currency === 'CAD' ? 'CA' : 'US'
+
+/** Gregorian Easter Sunday (Meeus/Jones/Butcher). */
+function easter(y: number) {
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const month = Math.floor((h + l - 7 * m + 114) / 31), day = (h + l - 7 * m + 114) % 31 + 1
+  return iso(y, month, day)
+}
+
+/**
+ * Days Payments Canada's ACSS (cheques, direct deposits, pre-authorized debits) and Lynx (wires) are closed.
+ * Source: https://www.payments.ca/system-closure-schedule, which publishes the dates year by year, and Lynx
+ * Rule 2 "Business Days": Monday to Friday except ten federal statutory holidays, and "where a Federal statutory
+ * holiday falls on a Saturday or Sunday, the day substituted ... is not a Business Day".
+ *
+ * Unlike the Federal Reserve, Canada closes on Good Friday, Victoria Day, National Day for Truth and Reconciliation
+ * and Boxing Day, does not close on Martin Luther King Day, Presidents Day, Juneteenth, Independence Day or US
+ * Thanksgiving, and a weekend holiday is always substituted, never dropped. The published
+ * schedules (2022 to 2027) all substitute the next weekday that is not already a closure: Christmas Saturday
+ * 2027 closes Monday December 27, and Boxing Day Sunday 2027 closes Tuesday December 28. This function applies
+ * that rule to any year and reproduces every published year exactly (see formats.test.ts). Years Payments Canada
+ * has not published yet are projected the same way.
+ */
+export function paymentsCanadaClosures(y: number): string[] {
+  const victoria = addDays(iso(y, 5, 24), -((wday(iso(y, 5, 24)) + 6) % 7))
+  const nominal = [iso(y, 1, 1), addDays(easter(y), -2), victoria, iso(y, 7, 1), nthWeekday(y, 9, 1, 1), iso(y, 9, 30), nthWeekday(y, 10, 1, 2), iso(y, 11, 11), iso(y, 12, 25), iso(y, 12, 26)]
+  const closed = new Set(nominal.filter(d => wday(d) !== 0 && wday(d) !== 6))
+  for (const d of nominal) {
+    if (wday(d) !== 0 && wday(d) !== 6) continue
+    let sub = addDays(d, 1)
+    while (wday(sub) === 0 || wday(sub) === 6 || closed.has(sub)) sub = addDays(sub, 1)
+    closed.add(sub)
+  }
+  return [...closed].sort()
+}
+
+const holidayCache = new Map<string, Set<string>>()
+function holidays(cal: BankCalendar, y: number) {
+  const key = `${cal}:${y}`
+  let set = holidayCache.get(key)
+  if (!set) holidayCache.set(key, set = new Set(cal === 'CA' ? paymentsCanadaClosures(y) : fedHolidays(y)))
+  return set
+}
+
+export function isBankDay(d: string, cal: BankCalendar = 'US'): boolean {
   const w = wday(d)
   if (w === 0 || w === 6) return false
-  if (!usHolidays) return true
-  const y = Number(d.slice(0, 4))
-  if (!holidayCache.has(y)) holidayCache.set(y, new Set(fedHolidays(y)))
-  return !holidayCache.get(y)!.has(d)
+  return !holidays(cal, Number(d.slice(0, 4))).has(d)
 }
 
 /** Money scheduled for a weekend or bank holiday moves on the next banking day. */
-export function nextBankDay(d: string, usHolidays = true): string {
-  while (!isBankDay(d, usHolidays)) d = addDays(d, 1)
+export function nextBankDay(d: string, cal: BankCalendar = 'US'): string {
+  while (!isBankDay(d, cal)) d = addDays(d, 1)
   return d
 }
