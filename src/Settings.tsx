@@ -58,7 +58,7 @@ export default function Settings() {
           <label className="field"><span>Slow-payer haircut (%)</span><input type="number" min="0" max="100" defaultValue={p.settings.haircutPct} onBlur={e => save({ settings: { ...p.settings, haircutPct: Math.min(100, Math.max(0, Number(e.target.value) || 0)) } })} /></label>
           <label className="field"><span>Slow payer after (days late)</span><input type="number" min="1" max="120" defaultValue={p.settings.slowDays} onBlur={e => save({ settings: { ...p.settings, slowDays: Math.min(120, Math.max(1, Number(e.target.value) || 15)) } })} /></label>
           <label className="field"><span>Pay bills (days after due)</span><input type="number" min="0" max="60" defaultValue={p.settings.payDelay} onBlur={e => save({ settings: { ...p.settings, payDelay: Math.min(60, Math.max(0, Number(e.target.value) || 0)) } })} /></label>
-          <label className="field"><span>Currency</span><select value={p.settings.currency} onChange={e => save({ settings: { ...p.settings, currency: e.target.value as 'USD' | 'CAD' } })}><option value="USD">US dollar</option><option value="CAD">Canadian dollar</option></select></label>
+          <label className="field"><span>Currency</span><select value={p.settings.currency} onChange={e => save({ settings: { ...p.settings, currency: e.target.value as 'USD' | 'CAD' } })}><option value="USD">US dollar</option><option value="CAD">Canadian dollar</option></select><small>Also picks the bank holidays that move payments: Federal Reserve (US) or Payments Canada (CA).</small></label>
         </div>
         <h3 className="sub">Reminder emails come from</h3>
         <div className="form-grid">

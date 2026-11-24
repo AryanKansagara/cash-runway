@@ -3,10 +3,10 @@
 // and Actual Budget (github.com/actualbudget/actual, packages/loot-core/src/mocks/files).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fedHolidays, nextBankDay, parseDate } from './dates.ts'
+import { calendarFor, fedHolidays, isBankDay, nextBankDay, parseDate, paymentsCanadaClosures } from './dates.ts'
 import { apply, decodeText, detect } from './importer.ts'
 import { categorize } from './recurring.ts'
-import { applyScenario, buildInputs, loanPayment, type Line } from './forecast.ts'
+import { applyScenario, buildInputs, forecast, loanPayment, type Line } from './forecast.ts'
 import { DEFAULT_SETTINGS, EMPTY_DATASET, EMPTY_OVERRIDES } from './types.ts'
 
 const run = (text: string, name = '') => { const p = detect(text, name)!; return { p, a: apply(p) } }
@@ -148,7 +148,7 @@ test('bank holidays match the Federal Reserve K.8 table for 2026 to 2028', () =>
   assert.deepEqual(fedHolidays(2027), ['2027-01-01', '2027-01-18', '2027-02-15', '2027-05-31', '2027-07-05', '2027-09-06', '2027-10-11', '2027-11-11', '2027-11-25'])
   assert.deepEqual(fedHolidays(2028), ['2028-01-17', '2028-02-21', '2028-05-29', '2028-06-19', '2028-07-04', '2028-09-04', '2028-10-09', '2028-11-23', '2028-12-25'])
   assert.equal(nextBankDay('2026-12-25'), '2026-12-28')
-  assert.equal(nextBankDay('2026-11-26', false), '2026-11-26')
+  assert.equal(nextBankDay('2026-11-26', 'CA'), '2026-11-26')
 })
 
 test('forecast lines due on a weekend or bank holiday land on the next banking day', () => {
@@ -156,6 +156,73 @@ test('forecast lines due on a weekend or bank holiday land on the next banking d
   const ds = { ...EMPTY_DATASET, templates: [{ id: 'r', name: 'Office rent', interval: 'monthly' as const, next: '2026-12-01', amount: -960000 }], balance: { amount: 10_000_000, date: '2026-11-20' } }
   const lines = buildInputs(ds, DEFAULT_SETTINGS, EMPTY_OVERRIDES, '2026-11-20').lines
   assert.deepEqual(lines.map(l => l.date), ['2026-12-01', '2027-01-04', '2027-02-01'])
+  // Jan 1 is also a Payments Canada closure (New Year's Day), so the CAD rent run now clears Monday Jan 4 too.
   const cad = buildInputs(ds, { ...DEFAULT_SETTINGS, currency: 'CAD' }, EMPTY_OVERRIDES, '2026-11-20').lines
-  assert.deepEqual(cad.map(l => l.date), ['2026-12-01', '2027-01-01', '2027-02-01'])
+  assert.deepEqual(cad.map(l => l.date), ['2026-12-01', '2027-01-04', '2027-02-01'])
+})
+
+test('Payments Canada closures match the published ACSS and Lynx schedule, year by year', () => {
+  // payments.ca/system-closure-schedule publishes "Date of Lynx and ACSS closure" per year. 2026 and 2027 are read from the
+  // live page (checked November 2026); 2022 to 2025 from its archived copies (web.archive.org snapshots of 2022-11-28, 2023-11-27 and 2025-02-14).
+  assert.deepEqual(paymentsCanadaClosures(2022), ['2022-01-03', '2022-04-15', '2022-05-23', '2022-07-01', '2022-09-05', '2022-09-30', '2022-10-10', '2022-11-11', '2022-12-26', '2022-12-27'])
+  assert.deepEqual(paymentsCanadaClosures(2023), ['2023-01-02', '2023-04-07', '2023-05-22', '2023-07-03', '2023-09-04', '2023-10-02', '2023-10-09', '2023-11-13', '2023-12-25', '2023-12-26'])
+  assert.deepEqual(paymentsCanadaClosures(2024), ['2024-01-01', '2024-03-29', '2024-05-20', '2024-07-01', '2024-09-02', '2024-09-30', '2024-10-14', '2024-11-11', '2024-12-25', '2024-12-26'])
+  assert.deepEqual(paymentsCanadaClosures(2025), ['2025-01-01', '2025-04-18', '2025-05-19', '2025-07-01', '2025-09-01', '2025-09-30', '2025-10-13', '2025-11-11', '2025-12-25', '2025-12-26'])
+  assert.deepEqual(paymentsCanadaClosures(2026), ['2026-01-01', '2026-04-03', '2026-05-18', '2026-07-01', '2026-09-07', '2026-09-30', '2026-10-12', '2026-11-11', '2026-12-25', '2026-12-28'])
+  assert.deepEqual(paymentsCanadaClosures(2027), ['2027-01-01', '2027-03-26', '2027-05-24', '2027-07-01', '2027-09-06', '2027-09-30', '2027-10-11', '2027-11-11', '2027-12-27', '2027-12-28'])
+})
+
+test('Canada Day and Boxing Day move CAD money to the next open day, across week boundaries', () => {
+  // Wednesday Canada Day 2026; Saturday Canada Day 2023 closes Monday July 3, so Saturday money clears Tuesday July 4.
+  assert.equal(nextBankDay('2026-07-01', 'CA'), '2026-07-02')
+  assert.equal(nextBankDay('2023-07-01', 'CA'), '2023-07-04')
+  // Boxing Day 2026 is a Saturday and closes Monday Dec 28; Christmas Friday money clears Tuesday Dec 29, next week.
+  assert.equal(nextBankDay('2026-12-25', 'CA'), '2026-12-29')
+  assert.equal(nextBankDay('2026-12-26', 'CA'), '2026-12-29')
+  assert.equal(nextBankDay('2026-12-28', 'CA'), '2026-12-29')
+  // 2027: Christmas Saturday closes Monday the 27th and Boxing Day Sunday closes Tuesday the 28th.
+  assert.equal(nextBankDay('2027-12-24', 'CA'), '2027-12-24')
+  assert.equal(nextBankDay('2027-12-25', 'CA'), '2027-12-29')
+  assert.equal(nextBankDay('2027-12-27', 'CA'), '2027-12-29')
+  // Good Friday, Victoria Day and 30 September are Canadian closures that the Federal Reserve does not observe.
+  for (const d of ['2026-04-03', '2026-05-18', '2026-09-30']) { assert.equal(isBankDay(d, 'US'), true); assert.equal(isBankDay(d, 'CA'), false) }
+  // Boxing Day 2025 (Friday) is a closure on its own.
+  assert.equal(nextBankDay('2025-12-26', 'CA'), '2025-12-29')
+})
+
+test('US Independence Day does not move a CAD line, and Canada Day does not move a USD line', () => {
+  // Sunday July 4 2027 is observed by the Reserve Banks on Monday July 5; Canada is open that day.
+  assert.equal(nextBankDay('2027-07-05', 'US'), '2027-07-06')
+  assert.equal(nextBankDay('2027-07-05', 'CA'), '2027-07-05')
+  // Thursday July 1 2027 is Canada Day; the Federal Reserve is open.
+  assert.equal(nextBankDay('2027-07-01', 'US'), '2027-07-01')
+  assert.equal(nextBankDay('2027-07-01', 'CA'), '2027-07-02')
+  // US Thanksgiving, Juneteenth and Martin Luther King Day are not Canadian closures.
+  for (const d of ['2026-11-26', '2026-06-19', '2027-01-18']) { assert.equal(isBankDay(d, 'US'), false); assert.equal(isBankDay(d, 'CA'), true) }
+  assert.equal(calendarFor('CAD'), 'CA')
+  assert.equal(calendarFor('USD'), 'US')
+})
+
+test('alternating US and CA lookups for the same year stay correct (calendar cache)', () => {
+  const expect: [string, boolean, boolean][] = [['2027-07-01', true, false], ['2027-07-05', false, true], ['2027-12-27', true, false], ['2027-12-28', true, false], ['2027-11-11', false, false], ['2027-02-15', false, true]]
+  for (let round = 0; round < 3; round++) {
+    for (const [d, us, ca] of expect) {
+      assert.equal(isBankDay(d, 'US'), us, `US ${d}`)
+      assert.equal(isBankDay(d, 'CA'), ca, `CA ${d}`)
+    }
+  }
+})
+
+test('forecast lines use the calendar of the project currency', () => {
+  // Rent due on Canada Day 2027 (Thursday), the last day of forecast week 1 for a Thursday as-of date.
+  const ds = { ...EMPTY_DATASET, templates: [{ id: 'r', name: 'Office rent', interval: 'monthly' as const, next: '2027-07-01', amount: -960000 }], balance: { amount: 10_000_000, date: '2027-06-24' } }
+  const run = (currency: 'USD' | 'CAD') => {
+    const st = { ...DEFAULT_SETTINGS, currency }
+    const inputs = buildInputs(ds, st, EMPTY_OVERRIDES, '2027-06-24')
+    const f = forecast(inputs, st)
+    const rent = inputs.lines.find(l => l.label === 'Office rent')!
+    return { date: rent.date, week: f.weeks.findIndex(w => w.lines.some(l => l.id === rent.id)) + 1 }
+  }
+  assert.deepEqual(run('USD'), { date: '2027-07-01', week: 1 })
+  assert.deepEqual(run('CAD'), { date: '2027-07-02', week: 2 })
 })
