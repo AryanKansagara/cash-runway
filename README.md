@@ -35,4 +35,13 @@ npm run dev
 npm test
 ```
 
+End-to-end tests (Playwright, Chromium) build the app and drive the production build through `vite preview`, signed out and with every request to Supabase blocked:
+
+```
+npx playwright install chromium   # once
+npm run test:e2e                  # builds, serves on 127.0.0.1:4173 (E2E_PORT to change), runs e2e/
+```
+
+GitHub Actions runs `npm ci`, build, unit tests and the E2E suite on pull requests and pushes to `main`.
+
 Live: https://cash-runway-zeta.vercel.app
